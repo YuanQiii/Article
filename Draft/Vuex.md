@@ -8,7 +8,7 @@ Vuex 是一个专为 Vue.js 应用程序开发的**状态管理模式**。它采
 
 ![](https://vuex.vuejs.org/vuex.png)
 
-## 核心模块
+## 核心概念
 
 ### State
 
@@ -131,36 +131,240 @@ Vuex 是一个专为 Vue.js 应用程序开发的**状态管理模式**。它采
 ### Actions
 
 - `Action` 提交的是 `mutation`，而不是直接变更状态
+
 - `Action` 可以包含任意异步操作
 
+-  `context` 对象参数
 
+  - `context.commit`
+  - `context.state`
+  - `context.getters`
 
+- 分发 Action
 
+  - Action 通过 `store.dispatch` 方法触发
 
-## 模块化
+    ```js
+    // 以载荷形式分发
+    store.dispatch('incrementAsync', {
+      amount: 10
+    })
+    
+    // 以对象形式分发
+    store.dispatch({
+      type: 'incrementAsync',
+      amount: 10
+    })
+    ```
 
-```js
-const moduleA = {
-  state: () => ({ ... }),
-  mutations: { ... },
-  actions: { ... },
-  getters: { ... }
-}
+- `mapActions` 辅助函数
 
-const moduleB = {
-  state: () => ({ ... }),
-  mutations: { ... },
-  actions: { ... }
-}
+  ```js
+    methods: {
+      ...mapActions([
+        'increment', // 将 `this.increment()` 映射为 `this.$store.dispatch('increment')`
+  
+        // `mapActions` 也支持载荷：
+        'incrementBy' // 将 `this.incrementBy(amount)` 映射为 `this.$store.dispatch('incrementBy', amount)`
+      ]),
+      ...mapActions({
+        add: 'increment' // 将 `this.add()` 映射为 `this.$store.dispatch('increment')`
+      })
+    }
+  ```
 
-const store = new Vuex.Store({
-  modules: {
-    a: moduleA,
-    b: moduleB
+- 组合 Action
+
+  ```js
+  store.dispatch('actionA').then(() => {
+    // ...
+  })
+  
+  actions: {
+    // 对象解构
+    actionB ({ dispatch, commit }) {
+      return dispatch('actionA').then(() => {
+        commit('someOtherMutation')
+      })
+    }
   }
-})
+  ```
 
-store.state.a // -> moduleA 的状态
-store.state.b // -> moduleB 的状态
-```
+### Module
+
+- 模块的局部状态
+
+  - 对于模块内部的 `mutation` 和 `getter`，接收的第一个参数是**模块的局部状态对象**
+  - `getter`的根节点状态会作为第三个参数
+  - 对于模块内部的 `action`
+    - 局部状态 `context.state`
+    - 根节点状态`context.rootState`
+
+  ```js
+  const moduleA = {
+    state: () => ({
+      count: 0
+    }),
+    mutations: {
+      increment (state) {
+        // 这里的 `state` 对象是模块的局部状态
+        state.count++
+      }
+    },
+    getters: {
+      sumWithRootCount (state, getters, rootState) {
+        return state.count + rootState.count
+      }
+    },
+    actions: {
+      incrementIfOddOnRootSum ({ state, commit, rootState }) {
+        if ((state.count + rootState.count) % 2 === 1) {
+          commit('increment')
+        }
+      }
+    }
+  }
+  ```
+
+-  命名空间
+
+  - 默认情况下，模块内部的 `action`、`mutation` 和 `getter` 注册在**全局命名空间**
+  - 添加 `namespaced: true` 使其成为带命名空间的模块
+
+  ```js
+  const store = new Vuex.Store({
+    modules: {
+      account: {
+        namespaced: true,
+  
+        // 模块内容（module assets）
+        state: () => ({}), // 模块内的状态已经是嵌套的了，使用 `namespaced` 属性不会对其产生影响
+        getters: {
+          isAdmin() { } // -> getters['account/isAdmin']
+        },
+        actions: {
+          login() { } // -> dispatch('account/login')
+        },
+        mutations: {
+          login() { } // -> commit('account/login')
+        },
+  
+        // 嵌套模块
+        modules: {
+          // 继承父模块的命名空间
+          myPage: {
+            state: () => ({}),
+            getters: {
+              profile() { } // -> getters['account/profile']
+            }
+          },
+  
+          // 进一步嵌套命名空间
+          posts: {
+            namespaced: true,
+  
+            state: () => ({}),
+            getters: {
+              popular() { } // -> getters['account/posts/popular']
+            }
+          }
+        }
+      }
+    }
+  })
+  ```
+
+  - 在带命名空间的模块内访问全局内容
+
+    - `rootState` 和 `rootGetters` 会作为第三和第四参数传入 `getter`
+    - 使用全局的`action`或`mutation`，将 `{ root: true }` 作为第三参数
+
+    ```js
+    getters: {
+      // 在这个模块的 getter 中，`getters` 被局部化了
+      // 你可以使用 getter 的第四个参数来调用 `rootGetters`
+      someGetter (state, getters, rootState, rootGetters) {
+        getters.someOtherGetter // -> 'foo/someOtherGetter'
+        rootGetters.someOtherGetter // -> 'someOtherGetter'
+      }
+    }
+    
+    actions: {
+      // 在这个模块中， dispatch 和 commit 也被局部化了
+      // 他们可以接受 `root` 属性以访问根 dispatch 或 commit
+      someAction ({ dispatch, commit, getters, rootGetters }) {
+        getters.someGetter // -> 'foo/someGetter'
+        rootGetters.someGetter // -> 'someGetter'
+    
+        dispatch('someOtherAction') // -> 'foo/someOtherAction'
+        dispatch('someOtherAction', null, { root: true }) // -> 'someOtherAction'
+    
+        commit('someMutation') // -> 'foo/someMutation'
+        commit('someMutation', null, { root: true }) // -> 'someMutation'
+      }
+    }
+    ```
+
+  - 在带命名空间的模块注册全局 action
+
+    - 添加 `root: true`
+
+    ```js
+    actions: {
+      someAction: {
+        root: true,
+          handler(namespacedContext, payload) { } // -> 'someAction'
+      }
+    }
+    ```
+
+  - 带命名空间的绑定函数
+
+    - 将模块的空间名称字符串作为第一个参数传递给函数，这样所有绑定都会自动将该模块作为上下文
+    - 使用 `createNamespacedHelpers` 创建基于某个命名空间辅助函数
+
+    ```js
+    computed: {
+      ...mapState('some/nested/module', {
+        a: state => state.a,
+        b: state => state.b
+      })
+    }
+    
+    import { createNamespacedHelpers } from 'vuex'
+    const { mapState, mapActions } = createNamespacedHelpers('some/nested/module')
+      computed: {
+        // 在 `some/nested/module` 中查找
+        ...mapState({
+          a: state => state.a,
+          b: state => state.b
+        })
+      }
+    ```
+
+- 模块动态注册
+
+  - 注册模块`store.registerModule`
+  - 卸载模块`store.unregisterModule`
+    - 不能使用此方法卸载静态模块（即创建 `store` 时声明的模块）
+  - 检查模块`store.hasModule(moduleName)`
+
+  ```js
+  import Vuex from 'vuex'
+  
+  const store = new Vuex.Store({ /* 选项 */ })
+  
+  // 注册模块 `myModule`
+  store.registerModule('myModule', {
+    // ...
+  })
+  // 注册嵌套模块 `nested/myModule`
+  store.registerModule(['nested', 'myModule'], {
+    // ...
+  })
+  ```
+
+## 参考
+
+- [Vuex (vuejs.org)](https://vuex.vuejs.org/zh/guide/)
 
